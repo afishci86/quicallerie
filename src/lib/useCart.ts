@@ -1,0 +1,72 @@
+import { useCallback, useMemo, useState } from 'react';
+import type { CartLine, Product } from '@/types';
+
+function lineKey(productId: string, unit: string): string {
+  return `${productId}|${unit}`;
+}
+
+export interface UseCart {
+  lines: CartLine[];
+  add: (product: Product, unit: string, quantity: number) => void;
+  setQuantity: (key: string, quantity: number) => void;
+  remove: (key: string) => void;
+  clear: () => void;
+  total: number;
+  count: number;
+}
+
+export function useCart(): UseCart {
+  const [lines, setLines] = useState<CartLine[]>([]);
+
+  const add = useCallback((product: Product, unit: string, quantity: number) => {
+    if (quantity <= 0) return;
+    const psu = product.sale_units?.find((u) => u.unit === unit);
+    if (!psu) return;
+    const key = lineKey(product.id, unit);
+    setLines((prev) => {
+      const idx = prev.findIndex((l) => l.key === key);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], quantity: next[idx].quantity + quantity };
+        return next;
+      }
+      return [
+        ...prev,
+        {
+          key,
+          product,
+          unit,
+          price: psu.price,
+          factorToStock: psu.factor_to_stock,
+          allowDecimal: psu.allow_decimal,
+          quantity,
+        },
+      ];
+    });
+  }, []);
+
+  const setQuantity = useCallback((key: string, quantity: number) => {
+    setLines((prev) =>
+      prev
+        .map((l) => (l.key === key ? { ...l, quantity } : l))
+        .filter((l) => l.quantity > 0),
+    );
+  }, []);
+
+  const remove = useCallback((key: string) => {
+    setLines((prev) => prev.filter((l) => l.key !== key));
+  }, []);
+
+  const clear = useCallback(() => setLines([]), []);
+
+  const total = useMemo(
+    () => lines.reduce((s, l) => s + l.price * l.quantity, 0),
+    [lines],
+  );
+  const count = useMemo(
+    () => lines.reduce((s, l) => s + (Number.isInteger(l.quantity) ? l.quantity : 1), 0),
+    [lines],
+  );
+
+  return { lines, add, setQuantity, remove, clear, total, count };
+}
