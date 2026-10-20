@@ -24,7 +24,7 @@ import { useOfflineSync } from '@/lib/useOfflineSync';
 import {
   fetchCategories, fetchProducts, fetchStore, updateStore, registerSale, fetchSaleWithItems,
   isSupabaseConfigured, pingSupabase, recordArrival, createProduct, updateProduct,
-  archiveProduct, upsertSaleUnit, deleteSaleUnit,
+  archiveProduct, upsertSaleUnit, deleteSaleUnit, uploadProductImage,
 } from '@/lib/supabase';
 import type { Product, ProductCategory, StoreInfo, Sale } from '@/types';
 
@@ -210,7 +210,7 @@ export default function App() {
         let imageUrl = value.image_url;
         if (imageFile) {
           // Use existing product id for upload
-          const url = await import('@/lib/supabase').then((m) => m.uploadProductImage(imageFile, editingProduct.id));
+          const url = await uploadProductImage(imageFile, editingProduct.id);
           if (url) imageUrl = url;
         }
         await updateProduct(editingProduct.id, {
@@ -236,7 +236,7 @@ export default function App() {
           saleUnits: value.saleUnits,
         });
         if (prod && imageFile) {
-          const url = await import('@/lib/supabase').then((m) => m.uploadProductImage(imageFile, prod.id));
+          const url = await uploadProductImage(imageFile, prod.id);
           if (url) await updateProduct(prod.id, { image_url: url });
         }
       }

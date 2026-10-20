@@ -4,7 +4,8 @@ import { useUser } from '@/lib/useUser';
 import { classNames } from '@/lib/format';
 import { colorOf } from '@/lib/colors';
 import type { LucideIcon } from 'lucide-react';
-import type { Tab } from '@/App';
+
+type Tab = 'home' | 'sell' | 'stock' | 'history' | 'credits' | 'boss';
 
 interface Props {
   supabaseOnline: boolean;

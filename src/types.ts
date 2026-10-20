@@ -157,6 +157,17 @@ export interface CancelSaleResult {
   error?: string;
 }
 
+export interface RegisterSaleInput {
+  storeId?: string | null;
+  idempotencyKey: string;
+  items: Array<{ product_id: string; unit: string; quantity: number; unit_price: number }>;
+  amountReceived: number | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  note?: string | null;
+  createdBy?: string | null;
+}
+
 export interface PendingOperation {
   id: string;
   type: 'sale' | 'arrival';

@@ -31,8 +31,8 @@ export function SellPage({ products, categories, onSelect }: Props) {
 
   function toggleVoice() {
     if (!recognitionSupported) return;
-    const SR = (window as unknown as { SpeechRecognition?: typeof window.SpeechRecognition; webkitSpeechRecognition?: typeof window.SpeechRecognition }).SpeechRecognition
-      ?? (window as unknown as { webkitSpeechRecognition?: typeof window.SpeechRecognition }).webkitSpeechRecognition;
+    const w = window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike };
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!SR) return;
     const rec = new SR();
     rec.lang = 'fr-FR';
@@ -144,4 +144,13 @@ export function SellPage({ products, categories, onSelect }: Props) {
 // Minimal ambient types for SpeechRecognition (not in TS lib by default)
 interface SpeechRecognitionEvent extends Event {
   results: ArrayLike<ArrayLike<{ transcript: string }>>;
+}
+interface SpeechRecognitionLike {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: (e: SpeechRecognitionEvent) => void;
+  onerror: () => void;
+  onend: () => void;
+  start: () => void;
 }
