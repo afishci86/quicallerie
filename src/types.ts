@@ -4,23 +4,10 @@ export type CategoryColor =
 
 export type UserRole = 'gerant' | 'employe';
 
-export type SaleUnitKind = 'gros' | 'detail';
-
 export interface UserProfile {
   role: UserRole;
   name: string;
-  employeeId: string | null;
   canEditCatalog: boolean;
-}
-
-export interface Employee {
-  id: string;
-  name: string;
-  role: UserRole;
-  can_edit_catalog: boolean;
-  is_active: boolean;
-  phone: string | null;
-  created_at: string;
 }
 
 export interface ProductCategory {
@@ -61,8 +48,9 @@ export interface CartLine {
   key: string;
   product: Product;
   unit: string;
-  unitLabel: string;
   price: number;
+  factorToStock: number;
+  allowDecimal: boolean;
   quantity: number;
 }
 
@@ -144,11 +132,11 @@ export interface RegisterSaleResult {
   error?: string;
 }
 
-export interface CancelSaleResult {
+export interface ArrivalResult {
   ok: boolean;
-  sale_id: string;
-  reference: string;
-  restocked_lines: number;
+  product_id: string;
+  new_stock_qty: number;
+  unit: string;
   error?: string;
 }
 
@@ -158,6 +146,14 @@ export interface PaymentInstallmentResult {
   amount_received: number;
   balance_due: number;
   status: SaleStatus;
+  error?: string;
+}
+
+export interface CancelSaleResult {
+  ok: boolean;
+  sale_id: string;
+  reference: string;
+  restocked_lines: number;
   error?: string;
 }
 
@@ -174,8 +170,8 @@ export interface RegisterSaleInput {
 
 export interface PendingOperation {
   id: string;
-  type: 'sale';
-  payload: RegisterSaleInput;
+  type: 'sale' | 'arrival';
+  payload: unknown;
   createdAt: number;
   attempts: number;
   lastError?: string;

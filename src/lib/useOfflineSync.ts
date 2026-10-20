@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PendingOperation } from '@/types';
-import { registerSale, isSupabaseConfigured, pingSupabase } from '@/lib/supabase';
+import { registerSale, recordArrival, isSupabaseConfigured, pingSupabase } from '@/lib/supabase';
+import type { RegisterSaleInput } from '@/lib/supabase';
 
 const STORAGE_KEY = 'quincaillerie.pendingOps';
 
@@ -9,7 +10,7 @@ function loadPending(): PendingOperation[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw) as PendingOperation[];
-    return Array.isArray(arr) ? arr.filter((o) => o.type === 'sale') : [];
+    return Array.isArray(arr) ? arr : [];
   } catch { return []; }
 }
 
@@ -21,6 +22,7 @@ export interface OfflineState {
   online: boolean;
   pending: PendingOperation[];
   syncing: boolean;
+  lastSyncError: string | null;
   enqueue: (op: Omit<PendingOperation, 'id' | 'createdAt' | 'attempts'>) => void;
   removePending: (id: string) => void;
   syncNow: () => Promise<void>;
@@ -30,13 +32,18 @@ export function useOfflineSync(): OfflineState {
   const [online, setOnline] = useState<boolean>(() => navigator.onLine);
   const [pending, setPending] = useState<PendingOperation[]>(() => loadPending());
   const [syncing, setSyncing] = useState(false);
+  const [lastSyncError, setLastSyncError] = useState<string | null>(null);
+  const tickRef = useRef(0);
 
   useEffect(() => {
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
   }, []);
 
   useEffect(() => { savePending(pending); }, [pending]);
@@ -44,7 +51,9 @@ export function useOfflineSync(): OfflineState {
   const enqueue = useCallback((op: Omit<PendingOperation, 'id' | 'createdAt' | 'attempts'>) => {
     const item: PendingOperation = {
       id: `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: Date.now(), attempts: 0, ...op,
+      createdAt: Date.now(),
+      attempts: 0,
+      ...op,
     };
     setPending((prev) => [...prev, item]);
   }, []);
@@ -54,35 +63,50 @@ export function useOfflineSync(): OfflineState {
   }, []);
 
   const syncNow = useCallback(async () => {
-    if (syncing || !isSupabaseConfigured) return;
+    if (syncing) return;
+    if (!isSupabaseConfigured) { setLastSyncError('Supabase non configuré'); return; }
     setSyncing(true);
+    setLastSyncError(null);
     try {
       const ok = await pingSupabase();
       setOnline(ok);
-      if (!ok) { setSyncing(false); return; }
+      if (!ok) { setLastSyncError('Cloud injoignable'); setSyncing(false); return; }
+
       const ops = loadPending();
       const stillPending: PendingOperation[] = [];
       for (const op of ops) {
-        if (op.type === 'sale') {
-          const res = await registerSale(op.payload);
-          if (!res.ok) stillPending.push({ ...op, attempts: op.attempts + 1, lastError: res.error });
+        try {
+          if (op.type === 'sale') {
+            const payload = op.payload as RegisterSaleInput;
+            const res = await registerSale(payload);
+            if (!res.ok) throw new Error(res.error ?? 'Échec vente');
+          } else if (op.type === 'arrival') {
+            const payload = op.payload as { productId: string; quantity: number; note: string | null; createdBy: string | null };
+            const res = await recordArrival(payload.productId, payload.quantity, payload.note, payload.createdBy);
+            if (!res.ok) throw new Error(res.error ?? 'Échec arrivage');
+          }
+        } catch (e) {
+          stillPending.push({ ...op, attempts: op.attempts + 1, lastError: (e as Error).message });
         }
       }
       setPending(stillPending);
-    } catch {
-      /* network still flaky; keep pending */
+      if (stillPending.length > 0) {
+        setLastSyncError(`${stillPending.length} opération(s) en échec`);
+      }
+    } catch (e) {
+      setLastSyncError((e as Error).message);
     } finally {
       setSyncing(false);
     }
   }, [syncing]);
 
+  // Auto-sync when back online
   useEffect(() => {
-    const t = useRef<NodeJS.Timeout | null>(null);
     if (online && pending.length > 0 && !syncing) {
-      t.current = setTimeout(() => { syncNow(); }, 800) as unknown as NodeJS.Timeout;
+      tickRef.current += 1;
+      syncNow();
     }
-    return () => { if (t.current) clearTimeout(t.current); };
   }, [online, pending.length, syncing, syncNow]);
 
-  return { online, pending, syncing, enqueue, removePending, syncNow };
+  return { online, pending, syncing, lastSyncError, enqueue, removePending, syncNow };
 }
