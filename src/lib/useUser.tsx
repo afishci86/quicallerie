@@ -1,60 +1,78 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { UserProfile } from '@/types';
+import { fetchEmployees, isSupabaseConfigured } from '@/lib/supabase';
+import type { Employee } from '@/types';
 
-const STORAGE_KEY = 'quincaillerie.userProfile';
-
-const DEFAULT_GERANT: UserProfile = { role: 'gerant', name: 'Gérant', canEditCatalog: true };
-const DEFAULT_EMPLOYE: UserProfile = { role: 'employe', name: 'Employé', canEditCatalog: false };
+const STORAGE_KEY = 'quincaillerie.activeEmployeeId';
 
 interface UserContextValue {
   profile: UserProfile;
-  setProfile: (p: UserProfile) => void;
-  setRole: (role: UserProfile['role']) => void;
-  setName: (name: string) => void;
-  setCanEditCatalog: (v: boolean) => void;
+  employees: Employee[];
+  loadingEmployees: boolean;
+  setActiveEmployee: (id: string | null) => void;
+  refreshEmployees: () => Promise<void>;
   isGerant: boolean;
   canEditCatalog: boolean;
 }
 
+const GUEST_GERANT: UserProfile = { role: 'gerant', name: 'Gérant', employeeId: null, canEditCatalog: true };
+
 const UserContext = createContext<UserContextValue | null>(null);
 
-function loadProfile(): UserProfile {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const p = JSON.parse(raw) as UserProfile;
-      if (p && (p.role === 'gerant' || p.role === 'employe')) return p;
-    }
-  } catch { /* ignore */ }
-  return DEFAULT_GERANT;
+function loadStoredId(): string | null {
+  try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
+}
+function saveStoredId(id: string | null): void {
+  try { if (id) localStorage.setItem(STORAGE_KEY, id); else localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 }
 
 export function UserProvider({ children }: { children: ReactNode }) {
-  const [profile, setProfileState] = useState<UserProfile>(() => loadProfile());
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(true);
+  const [activeId, setActiveId] = useState<string | null>(() => loadStoredId());
 
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(profile)); } catch { /* ignore */ }
-  }, [profile]);
+  const refreshEmployees = useCallback(async () => {
+    if (!isSupabaseConfigured) { setLoadingEmployees(false); return; }
+    setLoadingEmployees(true);
+    try {
+      const data = await fetchEmployees();
+      setEmployees(data);
+      // If active id no longer exists or is inactive, reset to gérant
+      if (activeId && !data.some((e) => e.id === activeId && e.is_active)) {
+        setActiveId(null); saveStoredId(null);
+      }
+    } catch {
+      /* keep current state */
+    } finally {
+      setLoadingEmployees(false);
+    }
+  }, [activeId]);
 
-  const setProfile = useCallback((p: UserProfile) => setProfileState(p), []);
-  const setRole = useCallback((role: UserProfile['role']) =>
-    setProfileState((prev) => ({
-      ...prev,
-      role,
-      canEditCatalog: role === 'gerant' ? prev.canEditCatalog : prev.canEditCatalog,
-    })), []);
-  const setName = useCallback((name: string) => setProfileState((prev) => ({ ...prev, name })), []);
-  const setCanEditCatalog = useCallback((v: boolean) => setProfileState((prev) => ({ ...prev, canEditCatalog: v })), []);
+  useEffect(() => { refreshEmployees(); }, [refreshEmployees]);
+
+  const setActiveEmployee = useCallback((id: string | null) => {
+    setActiveId(id);
+    saveStoredId(id);
+  }, []);
+
+  const profile = useMemo<UserProfile>(() => {
+    if (!activeId) return GUEST_GERANT;
+    const emp = employees.find((e) => e.id === activeId && e.is_active);
+    if (!emp) return GUEST_GERANT;
+    return {
+      role: emp.role,
+      name: emp.name,
+      employeeId: emp.id,
+      canEditCatalog: emp.role === 'gerant' || emp.can_edit_catalog,
+    };
+  }, [activeId, employees]);
 
   const value = useMemo<UserContextValue>(() => ({
-    profile,
-    setProfile,
-    setRole,
-    setName,
-    setCanEditCatalog,
+    profile, employees, loadingEmployees,
+    setActiveEmployee, refreshEmployees,
     isGerant: profile.role === 'gerant',
     canEditCatalog: profile.role === 'gerant' || profile.canEditCatalog,
-  }), [profile, setProfile, setRole, setName, setCanEditCatalog]);
+  }), [profile, employees, loadingEmployees, setActiveEmployee, refreshEmployees]);
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 }
@@ -64,5 +82,3 @@ export function useUser(): UserContextValue {
   if (!ctx) throw new Error('useUser must be used within UserProvider');
   return ctx;
 }
-
-export { DEFAULT_GERANT, DEFAULT_EMPLOYE };
